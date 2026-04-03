@@ -1,0 +1,40 @@
+# Secrets & environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
+# Data
+data/*.parquet
+data/parquet/
+
+# Logs
+logs/
+*.log
+
+# Node / web frontend
+web/node_modules/
+web/.next/
+web/out/
+
+# Claude Code
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

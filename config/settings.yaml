@@ -1,0 +1,104 @@
+# =============================================================================
+# Trading Bot Configuration
+# =============================================================================
+
+# Default symbol and timeframe
+symbol: "BTC/USDT"
+timeframe: "1m"
+
+# Backtesting defaults
+backtest:
+  initial_capital: 10000.0
+  taker_fee: 0.0005        # 0.05% per trade (Binance/Hyperliquid typical)
+  maker_fee: 0.0002        # 0.02% maker fee
+  slippage: 0.0001         # 0.01% slippage estimate
+  position_size: 1.0       # fraction of capital per trade (1.0 = 100%)
+
+# Strategy parameters
+strategies:
+  momentum:
+    ema_period: 30            # optimized (was 20) — longer EMA filters more noise on 1h
+    rsi_period: 14
+    rsi_long_threshold: 50    # optimized (was 55) — wider bands = more signals
+    rsi_short_threshold: 40   # optimized (was 45)
+
+  mean_reversion:
+    bb_period: 20
+    bb_std: 2.0
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+  volatility_breakout:
+    donchian_period: 50       # optimized (was 20) — 50h ≈ 2 days, catches real breakouts
+    volume_ma_period: 20
+    atr_period: 14
+
+  orb:
+    or_window_minutes: 15        # opening range window (5 = fast scalp, 15 = robust)
+    session_hours: [0, 8, 16]    # UTC session start hours (8h sessions)
+    atr_skip_mult: 1.2           # skip if OR_width > 1.2 * ATR
+    atr_period: 14
+    volume_mult: 1.2             # breakout volume > 1.2x median
+    volume_lookback: 30          # median volume lookback (minutes)
+    use_vwap_bias: true          # require VWAP alignment
+    vwap_period: 60              # rolling VWAP window
+    tp_r_multiple: 2.0           # take profit at 2R
+    trail_sma_period: 10         # trailing stop SMA period
+    time_stop_minutes: 15        # time stop if < 0.5R progress
+    time_stop_r_threshold: 0.5
+
+  vwap_reversion:
+    vwap_period: 20
+    vwap_std_mult: 2.0
+    rsi_period: 14
+    rsi_divergence_lookback: 5
+
+  vwap_pullback:
+    session_hours: [0, 8, 16]
+    atr_period: 14
+    pullback_atr_mult: 0.4
+    vwap_slope_lookback: 5
+    use_structure_filter: true
+    structure_lookback: 6
+    stop_atr_mult: 0.5
+    tp_r_multiple: 2.0
+    trail_ema_period: 9
+
+  ema_swing:
+    ema_period: 200
+
+  confluence:
+    ema_fast: 50
+    ema_slow: 200
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_div_lookback: 20
+    fib_swing_lookback: 100
+    fib_tolerance: 0.01
+    sr_lookback: 50
+    sr_tolerance: 0.005
+    tl_swing_lookback: 5
+    tl_min_swings: 3
+    tl_tolerance: 0.005
+    entry_threshold: 7
+    exit_threshold: 3
+
+# Risk management (Phase 3)
+risk:
+  max_position_pct: 0.05     # max 5% of portfolio per position
+  daily_loss_limit: -0.15    # halt at -15% daily loss
+  total_drawdown_limit: -0.30 # kill switch at -30% total drawdown
+  max_open_positions: 3
+
+# Live trading (Phase 3)
+live:
+  symbols:
+    - "BTC/USDT"
+    - "ETH/USDT"
+  strategy: "volatility_breakout"  # primary strategy for live
+  mode: "paper"                     # "paper" or "live"
+
+# Data storage
+data:
+  parquet_dir: "data/parquet"
