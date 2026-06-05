@@ -4,6 +4,11 @@
 //@version=6
 indicator("RSI Channel Alerts", overlay=false, precision=2)
 
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+isMSTR       = syminfo.ticker == "MSTR"
+isDaily      = timeframe.period == "D"
+validContext = isMSTR and isDaily
+
 // === INPUTS: RSI ===
 grpRSI     = "RSI"
 rsiLength  = input.int(14, "RSI Length", minval=2, maxval=100, group=grpRSI)
@@ -27,11 +32,10 @@ slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
 upperLine = point1RSI + slope * (time - point1Time)
 lowerLine = upperLine - channelWidth
 
-// === SIGNALS ===
-breakoutBuy      = ta.crossover(rsi, upperLine)
-upperRejection   = ta.crossunder(rsi, upperLine)
-supportTouch     = rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance
-supportBreakdown = ta.crossunder(rsi, lowerLine)
+// === SIGNALS (all reference the upper white line, gated on MSTR daily) ===
+buyBreakout   = validContext and ta.crossover(rsi, upperLine)
+invalidateBuy = validContext and ta.crossunder(rsi, upperLine)
+retestLine    = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
 
 // === PLOTS: RSI + reference lines ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
@@ -40,16 +44,22 @@ pLower = plot(lowerLine, "Lower Channel", color=color.new(color.white, 20), line
 fill(pUpper, pLower, color=color.new(color.white, 92), title="Channel Fill")
 
 // === SIGNAL MARKERS ===
-plotshape(breakoutBuy,      title="Breakout BUY",      style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
-plotshape(upperRejection,   title="Upper Rejection",   style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="REJ")
-plotshape(supportTouch,     title="Support Touch",     style=shape.triangleup,   location=location.absolute, color=color.new(color.lime, 0),   size=size.small, text="DIP")
-plotshape(supportBreakdown, title="Support Breakdown", style=shape.triangledown, location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="BRK")
+plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
+plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
+plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 
+// === GUARD WARNING LABEL ===
+var label warnLabel = na
+if barstate.islast
+    label.delete(warnLabel)
+    if not validContext
+        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
+
 // === ALERTS ===
-alertcondition(breakoutBuy,      title="RSI Channel: Breakout BUY",         message="RSI Channel BUY — RSI crossed above descending upper resistance. Consider opening longs / LEAPS.")
-alertcondition(upperRejection,   title="RSI Channel: Upper Rejection",      message="RSI Channel REJECTION — RSI crossed back below upper resistance. Consider closing longs.")
-alertcondition(supportTouch,     title="RSI Channel: Support Touch (DIP)",  message="RSI Channel DIP — RSI touched lower support line. Consider dip buy.")
-alertcondition(supportBreakdown, title="RSI Channel: Support Breakdown",    message="RSI Channel BREAKDOWN — RSI broke below lower support line. Channel structure broken.")
+alertcondition(buyBreakout,   title="MSTR RSI: BUY breakout",   message="MSTR RSI BUY — RSI crossed above descending upper resistance (white line). Consider opening longs / LEAPS.")
+alertcondition(invalidateBuy, title="MSTR RSI: INVALIDATE buy", message="MSTR RSI INVALIDATE — RSI fell back below the white line. Buy thesis broken; consider closing / cutting risk.")
+alertcondition(retestLine,    title="MSTR RSI: RETEST / TP",    message="MSTR RSI RETEST — RSI returned to the white line from above. If long & in profit: consider taking partial profit. If flat / early: consider add.")
