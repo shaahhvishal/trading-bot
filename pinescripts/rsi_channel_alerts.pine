@@ -9,11 +9,24 @@ grpRSI     = "RSI"
 rsiLength  = input.int(14, "RSI Length", minval=2, maxval=100, group=grpRSI)
 rsiSource  = input.source(close, "RSI Source", group=grpRSI)
 
+// === INPUTS: Channel anchors (upper line) ===
+grpAnchor   = "Channel Anchors"
+point1Time  = input.time(timestamp("2022-01-01T00:00"), "Point 1 Time",  group=grpAnchor, confirm=true)
+point1RSI   = input.price(70.0,                         "Point 1 RSI",   group=grpAnchor, confirm=true)
+point2Time  = input.time(timestamp("2024-01-01T00:00"), "Point 2 Time",  group=grpAnchor, confirm=true)
+point2RSI   = input.price(60.0,                         "Point 2 RSI",   group=grpAnchor, confirm=true)
+
 // === RSI ===
 rsi = ta.rsi(rsiSource, rsiLength)
 
+// === UPPER CHANNEL LINE (projected from two anchor points) ===
+// slope in RSI units per millisecond of time
+slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
+upperLine = point1RSI + slope * (time - point1Time)
+
 // === PLOTS: RSI + reference lines ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
+plot(upperLine, "Upper Channel", color=color.new(color.white, 20), linewidth=1)
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
