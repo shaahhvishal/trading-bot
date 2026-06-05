@@ -24,6 +24,14 @@ startDate = input.time(timestamp("2021-01-01T00:00"), "Start Date", group=grpRan
 endDate   = input.time(timestamp("2030-01-01T00:00"), "End Date",   group=grpRange)
 inRange   = time >= startDate and time <= endDate
 
+// === INPUTS: Strategy rules ===
+grpRules            = "Strategy Rules"
+enableBreakoutEntry = input.bool(true,  "Long Entry on BUY Breakout",                    group=grpRules)
+enableRetestEntry   = input.bool(true,  "Long Entry on Retest (if flat)",                group=grpRules)
+enableInvalidExit   = input.bool(true,  "Exit Long on INVALIDATE (cross below line)",    group=grpRules)
+enableRetestTP      = input.bool(true,  "Take Profit on Retest (if in profit)",          group=grpRules)
+tpMinProfitR        = input.float(0.5,  "Min profit (in R / channel widths) before retest TP fires", minval=0.0, step=0.1, group=grpRules, tooltip="Retest TP only fires if open position is up at least this many channel widths from entry. Prevents flapping on micro-retests.")
+
 // === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
 isMSTR       = syminfo.ticker == "MSTR"
 isDaily      = timeframe.period == "D"
@@ -48,3 +56,38 @@ fill(pUpper, pLower, color=color.new(color.white, 92), title="Channel Fill")
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
+
+// === STRATEGY STATE ===
+flat       = strategy.position_size == 0
+inLong     = strategy.position_size > 0
+entryPrice = strategy.position_avg_price
+// "R" = profit measured in channel widths (RSI points → price-equivalent is approximate; we use raw RSI gain above upperLine at entry as the unit)
+// Simpler proxy: gain measured in price terms vs entry, normalized by channelWidth ÷ 100 (loose scaling)
+inProfit   = inLong and (close - entryPrice) / entryPrice >= tpMinProfitR * (channelWidth / 100.0)
+
+// === STRATEGY ENTRIES (long-only) ===
+if inRange and flat and enableBreakoutEntry and buyBreakout
+    strategy.entry("Breakout", strategy.long, comment="Breakout")
+
+if inRange and flat and enableRetestEntry and retestLine
+    strategy.entry("Retest", strategy.long, comment="RetestEntry")
+
+// === STRATEGY EXITS ===
+if inLong and enableInvalidExit and invalidateBuy
+    strategy.close_all(comment="Invalidate")
+
+if inLong and enableRetestTP and retestLine and inProfit
+    strategy.close_all(comment="RetestTP")
+
+// === SIGNAL MARKERS (visual reference on strategy chart) ===
+plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
+plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
+plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
+
+// === GUARD WARNING LABEL ===
+var label warnLabel = na
+if barstate.islast
+    label.delete(warnLabel)
+    if not validContext
+        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
