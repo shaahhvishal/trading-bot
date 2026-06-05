@@ -72,31 +72,45 @@ Verification workflow:
 
 ## Alert / signal definitions
 
+**Revised 2026-06-05:** all signals now reference the **upper** channel line. The lower line remains as a visual channel-structure reference but does not produce signals. Rationale: user-stated requirements (#1 buy on breakout, #2 invalidate on fall below, #3/4 retest/TP on return to line) all describe events on the upper line.
+
 | Signal | Pine condition | Meaning |
 |---|---|---|
-| `breakoutBuy` | `ta.crossover(rsi, upperLine)` | Bullish: RSI broke above descending resistance |
-| `upperRejection` | `ta.crossunder(rsi, upperLine)` | Bearish exit: RSI failed at resistance |
-| `supportTouch` | `rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance` | Bullish dip-buy: RSI entered support zone from above |
-| `supportBreakdown` | `ta.crossunder(rsi, lowerLine)` | Bearish: channel broke down |
+| `buyBreakout` | `ta.crossover(rsi, upperLine)` | **BUY**: RSI broke above descending upper resistance |
+| `invalidateBuy` | `ta.crossunder(rsi, upperLine)` | **INVALIDATE**: RSI fell back below the line — buy thesis broken |
+| `retestLine` | `rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance` | **RETEST / TP**: RSI returned to the line from above. Interpret as add-to-position (if early/flat) or take-profit (if extended). |
 
-`supportTouch` fires once when RSI enters the tolerance zone (not every bar it stays there) — this avoids alert spam during extended support tests.
+Note on requirements #3 and #4: the user confirmed these are the same event with different P&L interpretations. They produce one signal (`retestLine`) with a unified alert message; the user reads context (current position, P&L) to decide whether to add or take profit.
 
 ### Indicator file — outputs per signal
 
-For each of the four signals:
+For each of the three signals:
 
-- `plotshape()` on the RSI pane: up-triangle (green) for bullish, down-triangle (red) for bearish, placed at the RSI value
-- `bgcolor()` tint on the price pane (subtle, low alpha): green for bullish, red for bearish
+- `plotshape()` on the RSI pane (placed at the RSI value via `location.absolute`):
+  - `buyBreakout` → green up-triangle, text "BUY"
+  - `invalidateBuy` → red down-triangle, text "INV"
+  - `retestLine` → orange diamond / triangle, text "RT"
 - `alertcondition()` with a descriptive message (matches the format in `volatility_breakout.pine`)
+
+### Symbol / timeframe guard
+
+The script is designed for MSTR daily only. A runtime guard checks `syminfo.ticker == "MSTR"` and `timeframe.period == "D"`:
+
+- If either is false: a red warning label is displayed on the chart (`"⚠️ Designed for MSTR Daily only. Current: <ticker> <timeframe>"`) and all signal conditions are AND-ed with `validContext` so no markers or alerts fire.
+- This prevents accidental misuse on the wrong symbol or timeframe.
 
 ## Strategy file — entries and exits
 
 Defaults (all toggleable via `input.bool`):
 
-- **Long entry on `breakoutBuy`:** enabled
-- **Long entry on `supportTouch`:** enabled
-- **Long exit on `upperRejection`:** enabled (close any open long)
-- **Long exit on `supportBreakdown`:** enabled (stop-out)
+- **Long entry on `buyBreakout`:** enabled
+- **Long entry on `retestLine` (add/re-enter):** enabled — entry on retest if currently flat
+- **Long exit on `invalidateBuy`:** enabled (close any open long when buy is invalidated)
+- **Long exit on `retestLine` (take profit):** enabled — close on retest if currently in profit
+
+Notes:
+- `retestLine` does double duty per the unified-event design. The strategy distinguishes "add/enter" vs "take profit" by checking `strategy.position_size` (flat → enter; profitable → close).
+- Removed from the prior design: `supportTouch` and `supportBreakdown` entries/exits no longer exist — the lower line has no signals.
 
 Rules:
 

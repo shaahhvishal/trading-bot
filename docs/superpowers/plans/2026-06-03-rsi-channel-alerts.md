@@ -254,6 +254,88 @@ git commit -m "feat(pine): alertcondition entries for all four channel signals"
 
 ---
 
+## Task 5b: Refactor indicator for revised signal semantics + MSTR/daily guard
+
+**Files:**
+- Modify: `pinescripts/rsi_channel_alerts.pine`
+
+**Why this task exists:** After Tasks 1-5 completed, the user clarified the alert semantics. Original design treated upper and lower line events symmetrically; the revised design puts all signals on the UPPER line (buy on breakout, invalidate on fall below, retest from above). The lower line remains as visual reference only. Also adds a MSTR/daily runtime guard.
+
+- [ ] **Step 1: Rename signals and move touch logic from lower line to upper line**
+
+Replace the existing `// === SIGNALS ===` block with:
+
+```pine
+// === SIGNALS (all reference the upper white line) ===
+buyBreakout    = ta.crossover(rsi, upperLine)
+invalidateBuy  = ta.crossunder(rsi, upperLine)
+retestLine     = rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
+```
+
+The old four-signal block (`breakoutBuy`, `upperRejection`, `supportTouch`, `supportBreakdown`) is fully replaced. `supportBreakdown` is dropped entirely; the lower line keeps its visual plot but produces no signal.
+
+- [ ] **Step 2: Add MSTR/daily runtime guard**
+
+Add immediately after the `indicator(...)` declaration, before any inputs:
+
+```pine
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+isMSTR       = syminfo.ticker == "MSTR"
+isDaily      = timeframe.period == "D"
+validContext = isMSTR and isDaily
+```
+
+Then at the bottom of the script (before the alerts section but after the plotshape section), add a warning label that renders on the last bar when validContext is false:
+
+```pine
+// === GUARD WARNING LABEL ===
+var label warnLabel = na
+if barstate.islast
+    label.delete(warnLabel)
+    if not validContext
+        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
+```
+
+Gate every signal with `validContext` — replace the three signal lines with the AND'd forms:
+
+```pine
+buyBreakout    = validContext and ta.crossover(rsi, upperLine)
+invalidateBuy  = validContext and ta.crossunder(rsi, upperLine)
+retestLine     = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
+```
+
+- [ ] **Step 3: Update plotshape calls — three markers, new colors and texts**
+
+Replace the existing `// === SIGNAL MARKERS ===` block with:
+
+```pine
+// === SIGNAL MARKERS ===
+plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
+plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
+plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
+```
+
+- [ ] **Step 4: Update alertcondition calls — three alerts with new titles/messages**
+
+Replace the existing `// === ALERTS ===` block with:
+
+```pine
+// === ALERTS ===
+alertcondition(buyBreakout,   title="MSTR RSI: BUY breakout",   message="MSTR RSI BUY — RSI crossed above descending upper resistance (white line). Consider opening longs / LEAPS.")
+alertcondition(invalidateBuy, title="MSTR RSI: INVALIDATE buy", message="MSTR RSI INVALIDATE — RSI fell back below the white line. Buy thesis broken; consider closing / cutting risk.")
+alertcondition(retestLine,    title="MSTR RSI: RETEST / TP",    message="MSTR RSI RETEST — RSI returned to the white line from above. If long & in profit: consider taking partial profit. If flat / early: consider add.")
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pinescripts/rsi_channel_alerts.pine
+git commit -m "refactor(pine): align signals with revised buy/invalidate/retest semantics + MSTR daily guard"
+```
+
+---
+
 ## Task 6: Strategy file — channel logic and skeleton
 
 **Files:**
@@ -288,17 +370,21 @@ startDate = input.time(timestamp("2021-01-01T00:00"), "Start Date", group=grpRan
 endDate   = input.time(timestamp("2030-01-01T00:00"), "End Date",   group=grpRange)
 inRange   = time >= startDate and time <= endDate
 
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+isMSTR       = syminfo.ticker == "MSTR"
+isDaily      = timeframe.period == "D"
+validContext = isMSTR and isDaily
+
 // === RSI + CHANNEL ===
 rsi       = ta.rsi(rsiSource, rsiLength)
 slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
 upperLine = point1RSI + slope * (time - point1Time)
 lowerLine = upperLine - channelWidth
 
-// === SIGNALS ===
-breakoutBuy      = ta.crossover(rsi, upperLine)
-upperRejection   = ta.crossunder(rsi, upperLine)
-supportTouch     = rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance
-supportBreakdown = ta.crossunder(rsi, lowerLine)
+// === SIGNALS (all on upper line, gated on MSTR daily) ===
+buyBreakout   = validContext and ta.crossover(rsi, upperLine)
+invalidateBuy = validContext and ta.crossunder(rsi, upperLine)
+retestLine    = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
 
 // === PLOTS (for visual verification during backtest) ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
@@ -333,15 +419,16 @@ git commit -m "feat(pine): RSI channel strategy skeleton with backtest range inp
 
 - [ ] **Step 1: Add entry/exit toggle inputs**
 
-Add a new group above the `// === RSI + CHANNEL ===` section:
+Add a new group above the `// === SYMBOL / TIMEFRAME GUARD ===` section:
 
 ```pine
 // === INPUTS: Strategy rules ===
-grpRules        = "Strategy Rules"
-enableBreakout  = input.bool(true, "Long Entry on Breakout (cross above upper)",      group=grpRules)
-enableDipBuy    = input.bool(true, "Long Entry on Support Touch (dip buy)",           group=grpRules)
-enableRejExit   = input.bool(true, "Exit Long on Upper Rejection (cross below upper)", group=grpRules)
-enableBreakExit = input.bool(true, "Exit Long on Support Breakdown",                   group=grpRules)
+grpRules            = "Strategy Rules"
+enableBreakoutEntry = input.bool(true,  "Long Entry on BUY Breakout",                    group=grpRules)
+enableRetestEntry   = input.bool(true,  "Long Entry on Retest (if flat)",                group=grpRules)
+enableInvalidExit   = input.bool(true,  "Exit Long on INVALIDATE (cross below line)",    group=grpRules)
+enableRetestTP      = input.bool(true,  "Take Profit on Retest (if in profit)",          group=grpRules)
+tpMinProfitR        = input.float(0.5,  "Min profit (in R / channel widths) before retest TP fires", minval=0.0, step=0.1, group=grpRules, tooltip="Retest TP only fires if open position is up at least this many channel widths from entry. Prevents flapping on micro-retests.")
 ```
 
 - [ ] **Step 2: Add strategy.entry / strategy.close logic**
@@ -349,30 +436,46 @@ enableBreakExit = input.bool(true, "Exit Long on Support Breakdown",            
 Append at the bottom of the file (after the existing plots/hlines):
 
 ```pine
-// === STRATEGY ENTRIES (long-only) ===
-flat = strategy.position_size == 0
+// === STRATEGY STATE ===
+flat       = strategy.position_size == 0
+inLong     = strategy.position_size > 0
+entryPrice = strategy.position_avg_price
+// "R" = profit measured in channel widths (RSI points → price-equivalent is approximate; we use raw RSI gain above upperLine at entry as the unit)
+// Simpler proxy: gain measured in price terms vs entry, normalized by channelWidth ÷ 100 (loose scaling)
+inProfit   = inLong and (close - entryPrice) / entryPrice >= tpMinProfitR * (channelWidth / 100.0)
 
-if inRange and flat and enableBreakout and breakoutBuy
+// === STRATEGY ENTRIES (long-only) ===
+if inRange and flat and enableBreakoutEntry and buyBreakout
     strategy.entry("Breakout", strategy.long, comment="Breakout")
 
-if inRange and flat and enableDipBuy and supportTouch
-    strategy.entry("DipBuy", strategy.long, comment="DipBuy")
+if inRange and flat and enableRetestEntry and retestLine
+    strategy.entry("Retest", strategy.long, comment="RetestEntry")
 
 // === STRATEGY EXITS ===
-if strategy.position_size > 0 and enableRejExit and upperRejection
-    strategy.close_all(comment="Rejection")
+if inLong and enableInvalidExit and invalidateBuy
+    strategy.close_all(comment="Invalidate")
 
-if strategy.position_size > 0 and enableBreakExit and supportBreakdown
-    strategy.close_all(comment="Breakdown")
+if inLong and enableRetestTP and retestLine and inProfit
+    strategy.close_all(comment="RetestTP")
 
 // === SIGNAL MARKERS (visual reference on strategy chart) ===
-plotshape(breakoutBuy,      title="Breakout BUY",      style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
-plotshape(upperRejection,   title="Upper Rejection",   style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="REJ")
-plotshape(supportTouch,     title="Support Touch",     style=shape.triangleup,   location=location.absolute, color=color.new(color.lime, 0),   size=size.small, text="DIP")
-plotshape(supportBreakdown, title="Support Breakdown", style=shape.triangledown, location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="BRK")
+plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
+plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
+plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
+
+// === GUARD WARNING LABEL ===
+var label warnLabel = na
+if barstate.islast
+    label.delete(warnLabel)
+    if not validContext
+        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
 ```
 
-Note: the `flat` guard prevents stacking multiple long entries when both breakout and dip-buy fire close together. First signal wins until exit.
+Notes:
+- `flat` guard prevents stacking entries when both breakout and retest fire near each other; first signal wins until exit.
+- `retestLine` does double duty: if `flat` and `enableRetestEntry`, it's an entry; if `inLong and inProfit and enableRetestTP`, it's a take-profit exit. The `inProfit` check (≥ `tpMinProfitR` channel widths above entry) prevents firing TP on a retest that happens right after entry with no gain.
+- The strategy is long-only (no shorts) — matches the user's LEAPS use case.
 
 - [ ] **Step 3: Verify the Strategy Tester populates with trades**
 
@@ -387,12 +490,12 @@ If "Total Closed Trades" is 0: the anchors are likely off the visible RSI range,
 
 - [ ] **Step 4: Toggle test — verify each rule input actually disables its signal**
 
-1. In strategy settings, uncheck "Long Entry on Breakout".
-2. Expected: trade count drops; only "DipBuy"-commented entries remain in the trade list.
-3. Re-check Breakout, uncheck "Long Entry on Support Touch".
+1. In strategy settings, uncheck "Long Entry on BUY Breakout".
+2. Expected: trade count drops; only "RetestEntry"-commented entries remain in the trade list.
+3. Re-check Breakout, uncheck "Long Entry on Retest (if flat)".
 4. Expected: only "Breakout"-commented entries remain.
-5. Re-check both entries; uncheck both exits.
-6. Expected: positions never close until the next entry opportunity (they'll be stuck open at end of backtest, visible in trade list as "Open" status).
+5. Re-check both entries; uncheck both exits ("Exit Long on INVALIDATE" and "Take Profit on Retest").
+6. Expected: positions never close until end of backtest; trade list shows them as "Open" with no exit.
 7. Restore all four toggles to checked.
 
 - [ ] **Step 5: Commit**
