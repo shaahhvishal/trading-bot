@@ -11,10 +11,10 @@ rsiSource  = input.source(close, "RSI Source", group=grpRSI)
 
 // === INPUTS: Channel anchors ===
 grpAnchor      = "Channel Anchors"
-point1Time     = input.time(timestamp("2022-01-01T00:00"), "Point 1 Time",  group=grpAnchor, confirm=true)
-point1RSI      = input.price(70.0,                         "Point 1 RSI",   group=grpAnchor, confirm=true)
-point2Time     = input.time(timestamp("2024-01-01T00:00"), "Point 2 Time",  group=grpAnchor, confirm=true)
-point2RSI      = input.price(60.0,                         "Point 2 RSI",   group=grpAnchor, confirm=true)
+point1Time     = input.time(timestamp("2022-01-01T00:00"), "Point 1 Time",  group=grpAnchor, tooltip="Date of upper-line anchor #1. Edit in settings.")
+point1RSI      = input.float(70.0, "Point 1 RSI", minval=0.0, maxval=100.0, step=0.5, group=grpAnchor, tooltip="RSI value at anchor #1.")
+point2Time     = input.time(timestamp("2024-01-01T00:00"), "Point 2 Time",  group=grpAnchor, tooltip="Date of upper-line anchor #2.")
+point2RSI      = input.float(60.0, "Point 2 RSI", minval=0.0, maxval=100.0, step=0.5, group=grpAnchor, tooltip="RSI value at anchor #2.")
 channelWidth   = input.float(30.0, "Channel Width (RSI points)", minval=1.0, step=0.5, group=grpAnchor)
 touchTolerance = input.float(1.5,  "Support Touch Tolerance (RSI points)", minval=0.1, step=0.1, group=grpAnchor)
 
