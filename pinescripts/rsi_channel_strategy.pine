@@ -1,0 +1,50 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+
+//@version=6
+strategy("RSI Channel Strategy", overlay=false, precision=2, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0)
+
+// === INPUTS: RSI ===
+grpRSI     = "RSI"
+rsiLength  = input.int(14, "RSI Length", minval=2, maxval=100, group=grpRSI)
+rsiSource  = input.source(close, "RSI Source", group=grpRSI)
+
+// === INPUTS: Channel anchors ===
+grpAnchor      = "Channel Anchors"
+point1Time     = input.time(timestamp("2022-01-01T00:00"), "Point 1 Time",  group=grpAnchor, confirm=true)
+point1RSI      = input.price(70.0,                         "Point 1 RSI",   group=grpAnchor, confirm=true)
+point2Time     = input.time(timestamp("2024-01-01T00:00"), "Point 2 Time",  group=grpAnchor, confirm=true)
+point2RSI      = input.price(60.0,                         "Point 2 RSI",   group=grpAnchor, confirm=true)
+channelWidth   = input.float(30.0, "Channel Width (RSI points)", minval=1.0, step=0.5, group=grpAnchor)
+touchTolerance = input.float(1.5,  "Support Touch Tolerance (RSI points)", minval=0.1, step=0.1, group=grpAnchor)
+
+// === INPUTS: Backtest range ===
+grpRange  = "Backtest Range"
+startDate = input.time(timestamp("2021-01-01T00:00"), "Start Date", group=grpRange)
+endDate   = input.time(timestamp("2030-01-01T00:00"), "End Date",   group=grpRange)
+inRange   = time >= startDate and time <= endDate
+
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+isMSTR       = syminfo.ticker == "MSTR"
+isDaily      = timeframe.period == "D"
+validContext = isMSTR and isDaily
+
+// === RSI + CHANNEL ===
+rsi       = ta.rsi(rsiSource, rsiLength)
+slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
+upperLine = point1RSI + slope * (time - point1Time)
+lowerLine = upperLine - channelWidth
+
+// === SIGNALS (all on upper line, gated on MSTR daily) ===
+buyBreakout   = validContext and ta.crossover(rsi, upperLine)
+invalidateBuy = validContext and ta.crossunder(rsi, upperLine)
+retestLine    = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
+
+// === PLOTS (for visual verification during backtest) ===
+plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
+pUpper = plot(upperLine, "Upper Channel", color=color.new(color.white, 20), linewidth=1)
+pLower = plot(lowerLine, "Lower Channel", color=color.new(color.white, 20), linewidth=1)
+fill(pUpper, pLower, color=color.new(color.white, 92), title="Channel Fill")
+hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
+hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
+hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
