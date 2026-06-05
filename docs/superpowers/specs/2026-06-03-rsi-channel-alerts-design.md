@@ -133,5 +133,5 @@ The Strategy Tester then provides net profit, # trades, win rate, profit factor,
 ## Success criteria
 
 1. Adding `rsi_channel_alerts.pine` to an MSTR daily chart and clicking two points on the visible RSI channel produces plotted upper/lower lines that visibly match the user's hand-drawn channel.
-2. The four `alertcondition` entries appear in TradingView's "Create Alert" dialog and fire correctly when their conditions are met (verifiable by stepping through historical bars with the Replay tool).
+2. The three `alertcondition` entries (BUY breakout, INVALIDATE buy, RETEST / TP) appear in TradingView's "Create Alert" dialog and fire correctly when their conditions are met (verifiable by stepping through historical bars with the Replay tool).
 3. `rsi_channel_strategy.pine` runs in Strategy Tester without errors on MSTR daily over the 2021-2026 range visible in the chart, producing a non-zero number of trades and a populated equity curve.
