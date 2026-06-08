@@ -65,13 +65,14 @@ pUpper = plot(clipToView(upperLine), "Active Upper", color=color.new(color.white
 pLower = plot(clipToView(lowerLine), "Active Lower", color=color.new(color.white, 0), linewidth=2)
 fill(pUpper, pLower, color=color.new(color.white, 88), title="Active Channel")
 
-plot(clipToView(baseLine + (-3) * channelWidth), "Rail -3", color=color.new(color.gray, 60), linewidth=1)
-plot(clipToView(baseLine + (-2) * channelWidth), "Rail -2", color=color.new(color.gray, 60), linewidth=1)
-plot(clipToView(baseLine + (-1) * channelWidth), "Rail -1", color=color.new(color.gray, 60), linewidth=1)
-plot(clipToView(baseLine),                       "Rail  0 (base)", color=color.new(color.gray, 45), linewidth=1)
-plot(clipToView(baseLine + 1 * channelWidth),    "Rail +1", color=color.new(color.gray, 60), linewidth=1)
-plot(clipToView(baseLine + 2 * channelWidth),    "Rail +2", color=color.new(color.gray, 60), linewidth=1)
-plot(clipToView(baseLine + 3 * channelWidth),    "Rail +3", color=color.new(color.gray, 60), linewidth=1)
+// Ladder rails: line.new + extend.both so they span the full chart and don't stretch the y-axis.
+var bool railsCreated = false
+if barstate.islast and not railsCreated
+    for k = -15 to 15
+        y1 = point1RSI + k * channelWidth
+        y2 = point2RSI + k * channelWidth
+        line.new(point1Time, y1, point2Time, y2, xloc=xloc.bar_time, extend=extend.both, color=color.new(color.red, 50), width=1)
+    railsCreated := true
 
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
