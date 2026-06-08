@@ -56,15 +56,17 @@ pUpper = plot(clipToView(upperLine), "Active Upper (next resistance)", color=col
 pLower = plot(clipToView(lowerLine), "Active Lower (last broken)",     color=color.new(color.white, 0), linewidth=2)
 fill(pUpper, pLower, color=color.new(color.white, 88), title="Active Channel")
 
-// === LADDER RAILS (red, full chart span) ===
-// Use line.new + extend.both so rails render continuously across the entire chart
-// without forcing the y-axis to scale to off-chart values.
+// === LADDER RAILS (3 reference rails matching user's drawn channel: k = -1, 0, +1) ===
+// Only 3 rails are drawn because line.new endpoints DO affect the pane's auto-scale
+// (more rails = wider y-axis stretch). The ladder math above still tracks ANY k value
+// for signal generation; the active upper/lower (white plots) show whichever rails are
+// currently flanking RSI even if they're outside these 3 reference lines.
 var bool railsCreated = false
 if barstate.islast and not railsCreated
-    for k = -15 to 15
+    for k = -1 to 1
         y1 = point1RSI + k * channelWidth
         y2 = point2RSI + k * channelWidth
-        line.new(point1Time, y1, point2Time, y2, xloc=xloc.bar_time, extend=extend.both, color=color.new(color.red, 50), width=1)
+        line.new(point1Time, y1, point2Time, y2, xloc=xloc.bar_time, extend=extend.both, color=color.new(color.red, 20), width=1)
     railsCreated := true
 
 // === REFERENCE HLINES ===
