@@ -33,9 +33,10 @@ enableRetestTP      = input.bool(true,  "Take Profit on Retest (if in profit)", 
 tpMinProfitR        = input.float(0.5,  "Min profit before retest TP fires (price gain × 100 / ladderSpacing)", minval=0.0, step=0.1, group=grpRules, tooltip="Retest TP only fires if open position is up by at least this fraction of a ladder spacing. Prevents flapping on micro-retests.")
 
 // === SYMBOL / TIMEFRAME GUARD (MSTR Daily or Weekly) ===
+// Note: timeframe.period returns "1W" on weekly charts, not "W" — use built-in helpers instead.
 isMSTR       = syminfo.ticker == "MSTR"
-isDaily      = timeframe.period == "D"
-isWeekly     = timeframe.period == "W"
+isDaily      = timeframe.isdaily
+isWeekly     = timeframe.isweekly
 validContext = isMSTR and (isDaily or isWeekly)
 
 // === RSI + BASE LINE ===
@@ -54,20 +55,23 @@ buyBreakout   = validContext and kAbove > kAbove[1]
 invalidateBuy = validContext and kAbove < kAbove[1]
 retestLine    = validContext and sameLevel and rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance
 
+// === HELPER: clip a value to visible RSI range so off-chart rails don't stretch the y-axis ===
+clipToView(v) => v >= -5.0 and v <= 105.0 ? v : na
+
 // === PLOTS (visual reference during backtest) ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
 
-pUpper = plot(upperLine, "Active Upper", color=color.new(color.white, 0), linewidth=2)
-pLower = plot(lowerLine, "Active Lower", color=color.new(color.white, 0), linewidth=2)
+pUpper = plot(clipToView(upperLine), "Active Upper", color=color.new(color.white, 0), linewidth=2)
+pLower = plot(clipToView(lowerLine), "Active Lower", color=color.new(color.white, 0), linewidth=2)
 fill(pUpper, pLower, color=color.new(color.white, 88), title="Active Channel")
 
-plot(baseLine + (-3) * channelWidth, "Rail -3", color=color.new(color.gray, 65), linewidth=1)
-plot(baseLine + (-2) * channelWidth, "Rail -2", color=color.new(color.gray, 65), linewidth=1)
-plot(baseLine + (-1) * channelWidth, "Rail -1", color=color.new(color.gray, 65), linewidth=1)
-plot(baseLine,                       "Rail  0 (base)", color=color.new(color.gray, 50), linewidth=1)
-plot(baseLine + 1 * channelWidth,    "Rail +1", color=color.new(color.gray, 65), linewidth=1)
-plot(baseLine + 2 * channelWidth,    "Rail +2", color=color.new(color.gray, 65), linewidth=1)
-plot(baseLine + 3 * channelWidth,    "Rail +3", color=color.new(color.gray, 65), linewidth=1)
+plot(clipToView(baseLine + (-3) * channelWidth), "Rail -3", color=color.new(color.gray, 60), linewidth=1)
+plot(clipToView(baseLine + (-2) * channelWidth), "Rail -2", color=color.new(color.gray, 60), linewidth=1)
+plot(clipToView(baseLine + (-1) * channelWidth), "Rail -1", color=color.new(color.gray, 60), linewidth=1)
+plot(clipToView(baseLine),                       "Rail  0 (base)", color=color.new(color.gray, 45), linewidth=1)
+plot(clipToView(baseLine + 1 * channelWidth),    "Rail +1", color=color.new(color.gray, 60), linewidth=1)
+plot(clipToView(baseLine + 2 * channelWidth),    "Rail +2", color=color.new(color.gray, 60), linewidth=1)
+plot(clipToView(baseLine + 3 * channelWidth),    "Rail +3", color=color.new(color.gray, 60), linewidth=1)
 
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
@@ -95,10 +99,10 @@ if inLong and enableInvalidExit and invalidateBuy
 if inLong and enableRetestTP and retestLine and inProfit
     strategy.close_all(comment="RetestTP")
 
-// === SIGNAL MARKERS (visual reference on strategy chart) ===
-plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
-plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
-plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
+// === SIGNAL MARKERS (plot at RSI value, not at boolean 0/1) ===
+plotshape(buyBreakout   ? rsi : na, title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
+plotshape(invalidateBuy ? rsi : na, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
+plotshape(retestLine    ? rsi : na, title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
 
 // === GUARD WARNING LABEL ===
 var label warnLabel = na
