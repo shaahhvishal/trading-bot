@@ -2,64 +2,84 @@
 // https://mozilla.org/MPL/2.0/
 
 //@version=6
-indicator("RSI Channel Alerts", overlay=false, precision=2)
+indicator("RSI Channel Alerts (Ladder)", overlay=false, precision=2, max_bars_back=2000)
 
-// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily or Weekly) ===
 isMSTR       = syminfo.ticker == "MSTR"
 isDaily      = timeframe.period == "D"
-validContext = isMSTR and isDaily
+isWeekly     = timeframe.period == "W"
+validContext = isMSTR and (isDaily or isWeekly)
 
 // === INPUTS: RSI ===
 grpRSI     = "RSI"
 rsiLength  = input.int(14, "RSI Length", minval=2, maxval=100, group=grpRSI)
 rsiSource  = input.source(close, "RSI Source", group=grpRSI)
 
-// === INPUTS: Channel anchors (upper line) ===
-grpAnchor   = "Channel Anchors"
-point1Time  = input.time(timestamp("2026-10-02T00:00"), "Point 1 Time",  group=grpAnchor, tooltip="Anchor 1 of the upper rail. Default = ~bar -82 from user's TradingView channel.")
-point1RSI   = input.float(48.42, "Point 1 RSI", minval=0.0, maxval=100.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 1.")
-point2Time  = input.time(timestamp("2025-07-25T00:00"), "Point 2 Time",  group=grpAnchor, tooltip="Anchor 2 of the upper rail. Default = ~bar 216 from user's TradingView channel.")
-point2RSI   = input.float(17.66, "Point 2 RSI", minval=0.0, maxval=100.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 2.")
-channelWidth = input.float(37.15, "Channel Width (RSI points)", minval=1.0, step=0.01, group=grpAnchor, tooltip="Vertical distance from upper to lower line. Default = TradingView 'Price offset' from user's channel.")
-touchTolerance = input.float(1.5, "Support Touch Tolerance (RSI points)", minval=0.1, step=0.1, group=grpAnchor, tooltip="How close RSI must get to lower line to count as a touch.")
+// === INPUTS: Channel anchors (define ONE rail of the parallel ladder) ===
+grpAnchor      = "Channel Anchors"
+point1Time     = input.time(timestamp("2025-04-07T00:00"), "Point 1 Time",  group=grpAnchor, tooltip="Anchor 1 of the base line. Default from user's Channel A (~bar 271, weekly chart).")
+point1RSI      = input.float(97.44, "Point 1 RSI", minval=-50.0, maxval=150.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 1.")
+point2Time     = input.time(timestamp("2026-06-01T00:00"), "Point 2 Time",  group=grpAnchor, tooltip="Anchor 2 of the base line. Default from user's Channel A (~bar 333, weekly chart).")
+point2RSI      = input.float(66.69, "Point 2 RSI", minval=-50.0, maxval=150.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 2.")
+channelWidth   = input.float(37.15, "Ladder Spacing (RSI points)", minval=1.0, step=0.01, group=grpAnchor, tooltip="Vertical distance between adjacent parallel rails. Default from user's TradingView 'Price offset' = 37.15.")
+touchTolerance = input.float(1.5,   "Retest Tolerance (RSI points)", minval=0.1, step=0.1,  group=grpAnchor, tooltip="How close RSI must get to the most-recently-broken line to count as a retest.")
 
 // === RSI ===
 rsi = ta.rsi(rsiSource, rsiLength)
 
-// === UPPER CHANNEL LINE (projected from two anchor points) ===
-// slope in RSI units per millisecond of time
-slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
-upperLine = point1RSI + slope * (time - point1Time)
-lowerLine = upperLine - channelWidth
+// === BASE LINE (projected from two anchor points) ===
+// slope in RSI units per millisecond
+slope    = (point2RSI - point1RSI) / (point2Time - point1Time)
+baseLine = point1RSI + slope * (time - point1Time)
 
-// === SIGNALS (all reference the upper white line, gated on MSTR daily) ===
-buyBreakout   = validContext and ta.crossover(rsi, upperLine)
-invalidateBuy = validContext and ta.crossunder(rsi, upperLine)
-retestLine    = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
+// === LADDER TRACKING ===
+// Rails are at baseLine + k * channelWidth for integer k.
+// kAbove = smallest integer k such that the rail at level k is strictly above RSI.
+kAbove    = math.floor((rsi - baseLine) / channelWidth) + 1
+upperLine = baseLine + kAbove * channelWidth         // active rail above RSI (next resistance)
+lowerLine = baseLine + (kAbove - 1) * channelWidth   // active rail below RSI (most-recently-crossed)
 
-// === PLOTS: RSI + reference lines ===
+// === SIGNALS (gated on MSTR daily or weekly) ===
+sameLevel     = kAbove == kAbove[1]
+buyBreakout   = validContext and kAbove > kAbove[1]                                         // RSI just crossed UP through a rail
+invalidateBuy = validContext and kAbove < kAbove[1]                                         // RSI just crossed DOWN through a rail
+retestLine    = validContext and sameLevel and rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance
+
+// === PLOTS: RSI + active rails (highlighted) ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
-pUpper = plot(upperLine, "Upper Channel", color=color.new(color.white, 20), linewidth=1)
-pLower = plot(lowerLine, "Lower Channel", color=color.new(color.white, 20), linewidth=1)
-fill(pUpper, pLower, color=color.new(color.white, 92), title="Channel Fill")
+
+pUpper = plot(upperLine, "Active Upper (next resistance)", color=color.new(color.white, 0), linewidth=2)
+pLower = plot(lowerLine, "Active Lower (last broken)",     color=color.new(color.white, 0), linewidth=2)
+fill(pUpper, pLower, color=color.new(color.white, 88), title="Active Channel")
+
+// === PLOTS: Ladder reference (faded) — 7 rails covering k = -3..+3 ===
+plot(baseLine + (-3) * channelWidth, "Rail -3", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + (-2) * channelWidth, "Rail -2", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + (-1) * channelWidth, "Rail -1", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine,                       "Rail  0 (base)", color=color.new(color.gray, 50), linewidth=1)
+plot(baseLine + 1 * channelWidth,    "Rail +1", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + 2 * channelWidth,    "Rail +2", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + 3 * channelWidth,    "Rail +3", color=color.new(color.gray, 65), linewidth=1)
+
+// === REFERENCE HLINES ===
+hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
+hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
+hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 
 // === SIGNAL MARKERS ===
 plotshape(buyBreakout,   title="BUY Breakout",   style=shape.triangleup,   location=location.absolute, color=color.new(color.green, 0),  size=size.small, text="BUY")
 plotshape(invalidateBuy, title="INVALIDATE Buy", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0),    size=size.small, text="INV")
 plotshape(retestLine,    title="RETEST / TP",    style=shape.diamond,      location=location.absolute, color=color.new(color.orange, 0), size=size.small, text="RT")
-hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
-hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
-hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 
 // === GUARD WARNING LABEL ===
 var label warnLabel = na
 if barstate.islast
     label.delete(warnLabel)
     if not validContext
-        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        msg = "⚠ Designed for MSTR Daily or Weekly only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
         warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
 
 // === ALERTS ===
-alertcondition(buyBreakout,   title="MSTR RSI: BUY breakout",   message="MSTR RSI BUY — RSI crossed above descending upper resistance (white line). Consider opening longs / LEAPS.")
-alertcondition(invalidateBuy, title="MSTR RSI: INVALIDATE buy", message="MSTR RSI INVALIDATE — RSI fell back below the white line. Buy thesis broken; consider closing / cutting risk.")
-alertcondition(retestLine,    title="MSTR RSI: RETEST / TP",    message="MSTR RSI RETEST — RSI returned to the white line from above. If long & in profit: consider taking partial profit. If flat / early: consider add.")
+alertcondition(buyBreakout,   title="MSTR RSI: BUY breakout (rail crossed up)",   message="MSTR RSI BUY — RSI crossed UP through a ladder rail. Consider opening / adding longs / LEAPS.")
+alertcondition(invalidateBuy, title="MSTR RSI: INVALIDATE buy (rail crossed down)", message="MSTR RSI INVALIDATE — RSI crossed DOWN through a ladder rail. Buy thesis weakened; consider closing / cutting risk.")
+alertcondition(retestLine,    title="MSTR RSI: RETEST / TP",                       message="MSTR RSI RETEST — RSI returned to the most-recently-broken rail from above. If long & in profit: consider taking partial profit. If flat / early in the move: consider add.")

@@ -2,21 +2,21 @@
 // https://mozilla.org/MPL/2.0/
 
 //@version=6
-strategy("RSI Channel Strategy", overlay=false, precision=2, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0)
+strategy("RSI Channel Strategy (Ladder)", overlay=false, precision=2, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0, max_bars_back=2000)
 
 // === INPUTS: RSI ===
 grpRSI     = "RSI"
 rsiLength  = input.int(14, "RSI Length", minval=2, maxval=100, group=grpRSI)
 rsiSource  = input.source(close, "RSI Source", group=grpRSI)
 
-// === INPUTS: Channel anchors ===
+// === INPUTS: Channel anchors (define ONE rail of the parallel ladder) ===
 grpAnchor      = "Channel Anchors"
-point1Time     = input.time(timestamp("2026-10-02T00:00"), "Point 1 Time",  group=grpAnchor, tooltip="Anchor 1 of the upper rail. Default = ~bar -82 from user's TradingView channel.")
-point1RSI      = input.float(48.42, "Point 1 RSI", minval=0.0, maxval=100.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 1.")
-point2Time     = input.time(timestamp("2025-07-25T00:00"), "Point 2 Time",  group=grpAnchor, tooltip="Anchor 2 of the upper rail. Default = ~bar 216 from user's TradingView channel.")
-point2RSI      = input.float(17.66, "Point 2 RSI", minval=0.0, maxval=100.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 2.")
-channelWidth   = input.float(37.15, "Channel Width (RSI points)", minval=1.0, step=0.01, group=grpAnchor, tooltip="Vertical distance from upper to lower line. Default = TradingView 'Price offset' from user's channel.")
-touchTolerance = input.float(1.5,  "Support Touch Tolerance (RSI points)", minval=0.1, step=0.1, group=grpAnchor)
+point1Time     = input.time(timestamp("2025-04-07T00:00"), "Point 1 Time",  group=grpAnchor, tooltip="Anchor 1 of the base line. Default from user's Channel A (~bar 271, weekly chart).")
+point1RSI      = input.float(97.44, "Point 1 RSI", minval=-50.0, maxval=150.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 1.")
+point2Time     = input.time(timestamp("2026-06-01T00:00"), "Point 2 Time",  group=grpAnchor, tooltip="Anchor 2 of the base line. Default from user's Channel A (~bar 333, weekly chart).")
+point2RSI      = input.float(66.69, "Point 2 RSI", minval=-50.0, maxval=150.0, step=0.01, group=grpAnchor, tooltip="RSI value at anchor 2.")
+channelWidth   = input.float(37.15, "Ladder Spacing (RSI points)", minval=1.0, step=0.01, group=grpAnchor, tooltip="Vertical distance between adjacent parallel rails. Default from user's TradingView 'Price offset' = 37.15.")
+touchTolerance = input.float(1.5,   "Retest Tolerance (RSI points)", minval=0.1, step=0.1,  group=grpAnchor, tooltip="How close RSI must get to the most-recently-broken line to count as a retest.")
 
 // === INPUTS: Backtest range ===
 grpRange  = "Backtest Range"
@@ -26,33 +26,49 @@ inRange   = time >= startDate and time <= endDate
 
 // === INPUTS: Strategy rules ===
 grpRules            = "Strategy Rules"
-enableBreakoutEntry = input.bool(true,  "Long Entry on BUY Breakout",                    group=grpRules)
+enableBreakoutEntry = input.bool(true,  "Long Entry on BUY Breakout (rail crossed up)",  group=grpRules)
 enableRetestEntry   = input.bool(true,  "Long Entry on Retest (if flat)",                group=grpRules)
-enableInvalidExit   = input.bool(true,  "Exit Long on INVALIDATE (cross below line)",    group=grpRules)
+enableInvalidExit   = input.bool(true,  "Exit Long on INVALIDATE (rail crossed down)",   group=grpRules)
 enableRetestTP      = input.bool(true,  "Take Profit on Retest (if in profit)",          group=grpRules)
-tpMinProfitR        = input.float(0.5,  "Min profit (in R / channel widths) before retest TP fires", minval=0.0, step=0.1, group=grpRules, tooltip="Retest TP only fires if open position is up at least this many channel widths from entry. Prevents flapping on micro-retests.")
+tpMinProfitR        = input.float(0.5,  "Min profit before retest TP fires (price gain × 100 / ladderSpacing)", minval=0.0, step=0.1, group=grpRules, tooltip="Retest TP only fires if open position is up by at least this fraction of a ladder spacing. Prevents flapping on micro-retests.")
 
-// === SYMBOL / TIMEFRAME GUARD (MSTR Daily only) ===
+// === SYMBOL / TIMEFRAME GUARD (MSTR Daily or Weekly) ===
 isMSTR       = syminfo.ticker == "MSTR"
 isDaily      = timeframe.period == "D"
-validContext = isMSTR and isDaily
+isWeekly     = timeframe.period == "W"
+validContext = isMSTR and (isDaily or isWeekly)
 
-// === RSI + CHANNEL ===
-rsi       = ta.rsi(rsiSource, rsiLength)
-slope     = (point2RSI - point1RSI) / (point2Time - point1Time)
-upperLine = point1RSI + slope * (time - point1Time)
-lowerLine = upperLine - channelWidth
+// === RSI + BASE LINE ===
+rsi      = ta.rsi(rsiSource, rsiLength)
+slope    = (point2RSI - point1RSI) / (point2Time - point1Time)
+baseLine = point1RSI + slope * (time - point1Time)
 
-// === SIGNALS (all on upper line, gated on MSTR daily) ===
-buyBreakout   = validContext and ta.crossover(rsi, upperLine)
-invalidateBuy = validContext and ta.crossunder(rsi, upperLine)
-retestLine    = validContext and rsi <= upperLine + touchTolerance and rsi[1] > upperLine[1] + touchTolerance
+// === LADDER TRACKING ===
+kAbove    = math.floor((rsi - baseLine) / channelWidth) + 1
+upperLine = baseLine + kAbove * channelWidth
+lowerLine = baseLine + (kAbove - 1) * channelWidth
 
-// === PLOTS (for visual verification during backtest) ===
+// === SIGNALS (gated on MSTR daily or weekly) ===
+sameLevel     = kAbove == kAbove[1]
+buyBreakout   = validContext and kAbove > kAbove[1]
+invalidateBuy = validContext and kAbove < kAbove[1]
+retestLine    = validContext and sameLevel and rsi <= lowerLine + touchTolerance and rsi[1] > lowerLine[1] + touchTolerance
+
+// === PLOTS (visual reference during backtest) ===
 plot(rsi, "RSI", color=color.new(color.yellow, 0), linewidth=2)
-pUpper = plot(upperLine, "Upper Channel", color=color.new(color.white, 20), linewidth=1)
-pLower = plot(lowerLine, "Lower Channel", color=color.new(color.white, 20), linewidth=1)
-fill(pUpper, pLower, color=color.new(color.white, 92), title="Channel Fill")
+
+pUpper = plot(upperLine, "Active Upper", color=color.new(color.white, 0), linewidth=2)
+pLower = plot(lowerLine, "Active Lower", color=color.new(color.white, 0), linewidth=2)
+fill(pUpper, pLower, color=color.new(color.white, 88), title="Active Channel")
+
+plot(baseLine + (-3) * channelWidth, "Rail -3", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + (-2) * channelWidth, "Rail -2", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + (-1) * channelWidth, "Rail -1", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine,                       "Rail  0 (base)", color=color.new(color.gray, 50), linewidth=1)
+plot(baseLine + 1 * channelWidth,    "Rail +1", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + 2 * channelWidth,    "Rail +2", color=color.new(color.gray, 65), linewidth=1)
+plot(baseLine + 3 * channelWidth,    "Rail +3", color=color.new(color.gray, 65), linewidth=1)
+
 hline(70, "Overbought", color=color.new(color.gray, 50), linestyle=hline.style_dashed)
 hline(50, "Mid",        color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_dashed)
@@ -61,8 +77,8 @@ hline(30, "Oversold",   color=color.new(color.gray, 50), linestyle=hline.style_d
 flat       = strategy.position_size == 0
 inLong     = strategy.position_size > 0
 entryPrice = strategy.position_avg_price
-// "R" = profit measured in channel widths (RSI points → price-equivalent is approximate; we use raw RSI gain above upperLine at entry as the unit)
-// Simpler proxy: gain measured in price terms vs entry, normalized by channelWidth ÷ 100 (loose scaling)
+// Profit measured as fractional price gain compared to a ladder-width-derived threshold.
+// Loose scaling (price percent vs RSI points) — adequate as a "don't TP on micro-retest" guard.
 inProfit   = inLong and (close - entryPrice) / entryPrice >= tpMinProfitR * (channelWidth / 100.0)
 
 // === STRATEGY ENTRIES (long-only) ===
@@ -89,5 +105,5 @@ var label warnLabel = na
 if barstate.islast
     label.delete(warnLabel)
     if not validContext
-        msg = "⚠ Designed for MSTR Daily only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
+        msg = "⚠ Designed for MSTR Daily or Weekly only.\nCurrent: " + syminfo.ticker + " " + timeframe.period
         warnLabel := label.new(bar_index, 50, msg, color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
